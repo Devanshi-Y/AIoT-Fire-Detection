@@ -400,7 +400,3 @@ Open `dashboard/index.html` in browser — data loads live from Firebase.
 
 This project was built for academic purposes as part of the AIOT mini-project. Feel free to use, modify, and extend.
 
----
-
-> **Viva answer if asked "Why not just use one sensor?"**
-> *"A single sensor produces false positives from everyday stimuli — sunlight triggers the flame sensor, cooking triggers smoke, weather triggers temperature. We use multi-sensor fusion across two nodes so that no single environmental event can create a false fire alert. This is the same principle used in commercial industrial fire systems."*
