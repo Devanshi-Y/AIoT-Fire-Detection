@@ -1,0 +1,41 @@
+smart-fire-system/
+│
+├── public/
+│
+├── src/
+│   │
+│   ├── assets/                # Images, icons, logos
+│   │
+│   ├── components/            # Reusable UI components
+│   │   ├── Navbar.jsx
+│   │   ├── MetricCard.jsx
+│   │   ├── ZoneCard.jsx
+│   │   ├── AlertBanner.jsx
+│   │   ├── Loader.jsx
+│   │
+│   ├── pages/                 # Main pages
+│   │   ├── Home.jsx
+│   │   ├── Dashboard.jsx
+│   │   ├── Visuals.jsx
+│   │
+│   ├── utils/                 # Logic functions
+│   │   ├── alertLogic.js
+│   │
+│   ├── services/              # API / external integrations
+│   │   ├── mqttService.js
+│   │   ├── thingspeakService.js
+│   │
+│   ├── data/                  # Mock / test data
+│   │   ├── mockData.js
+│   │
+│   ├── hooks/                 # Custom hooks (optional later)
+│   │   ├── useMQTT.js
+│   │
+│   ├── App.jsx                # Main routing
+│   ├── main.jsx               # Entry point
+│   ├── index.css              # Tailwind styles
+│
+├── tailwind.config.js
+├── postcss.config.js
+├── package.json
+├── vite.config.js
