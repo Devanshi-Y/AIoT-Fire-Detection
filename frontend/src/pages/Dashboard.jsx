@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import ZoneCard from "../components/ZoneCard";
 import AlertHistory from "../components/AlertHistory";
 import AlertPopup from "../components/AlertPopup";
+import { connectMQTT } from "../services/mqttService";
 
 export default function Dashboard() {
   const [zone1, setZone1] = useState({});
@@ -9,16 +10,34 @@ export default function Dashboard() {
   const [alert, setAlert] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [popupAlert, setPopupAlert] = useState(null);
+  const [graphData, setGraphData] = useState(null);
+  const [selectedMetric, setSelectedMetric] = useState(null);
+  const [selectedZone, setSelectedZone] = useState(null);
+  const MAX_POINTS = 20;
 
-  const generateData = () => ({
-    temp: Math.floor(30 + Math.random() * 30),
-    humidity: Math.floor(40 + Math.random() * 40),
-    smoke: Math.floor(Math.random() * 400),
-    soil: Math.floor(Math.random() * 40),
-    flame: Math.random() > 0.8,
-    lat: "28.61",
-    lon: "77.20",
+  const [history, setHistory] = useState({
+    z1: [],
+    z2: [],
   });
+
+  const generateHistory = () => {
+    return Array.from({ length: 10 }).map((_, i) => ({
+      time: i,
+
+      // Zone 1
+      z1Temp: 30 + Math.random() * 20,
+      z1Humidity: 40 + Math.random() * 30,
+      z1Smoke: Math.random() * 400,
+      z1Flame: Math.random() > 0.8 ? 1 : 0, // 1 = flame, 0 = no flame
+
+      // Zone 2
+      z2Temp: 28 + Math.random() * 20,
+      z2Humidity: 42 + Math.random() * 30,
+      z2Smoke: Math.random() * 400,
+      z2Soil: Math.random() * 40,
+      z2Flame: Math.random() > 0.8 ? 1 : 0,
+    }));
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -89,6 +108,48 @@ export default function Dashboard() {
 
     return () => clearInterval(interval);
   }, []);
+  useEffect(() => {
+    const client = connectMQTT((topic, data) => {
+      // expected data shape from ESP32:
+      // { temp, humidity, smoke, soil?, flame, lat, lon }
+
+      const point = {
+        time: new Date().toLocaleTimeString(),
+        temp: Number(data.temp),
+        humidity: Number(data.humidity),
+        smoke: Number(data.smoke),
+        soil: data.soil ? Number(data.soil) : null,
+        flame: data.flame ? 1 : 0,
+        lat: data.lat,
+        lon: data.lon,
+      };
+
+      if (topic === "forest/zone1") {
+        setZone1(point); // your existing live card state
+
+        setHistory((prev) => ({
+          ...prev,
+          z1: [...prev.z1, point].slice(-MAX_POINTS),
+        }));
+      }
+
+      if (topic === "forest/zone2") {
+        setZone2(point);
+
+        setHistory((prev) => ({
+          ...prev,
+          z2: [...prev.z2, point].slice(-MAX_POINTS),
+        }));
+      }
+    });
+
+    return () => client.end();
+  }, []);
+  const handleCardClick = (metric, zone) => {
+    setSelectedMetric(metric);
+    setSelectedZone(zone);
+    setGraphData(generateHistory());
+  };
 
   return (
     <div className="bg-[#fff7ed] min-h-screen pt-24 px-6">
@@ -101,8 +162,20 @@ export default function Dashboard() {
 
       <h1 className="text-3xl mb-6 font-bold">Forest Monitoring Dashboard</h1>
 
-      <ZoneCard zone={1} data={zone1} type="zone1" />
-      <ZoneCard zone={2} data={zone2} type="zone2" />
+      <ZoneCard
+        zone={1}
+        data={zone1}
+        type="zone1"
+        onCardClick={handleCardClick}
+      />
+
+      <ZoneCard
+        zone={2}
+        data={zone2}
+        type="zone2"
+        onCardClick={handleCardClick}
+      />
+
       <AlertHistory alerts={alerts} />
       <AlertPopup alert={popupAlert} onClose={() => setPopupAlert(null)} />
     </div>

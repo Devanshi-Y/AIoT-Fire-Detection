@@ -1,0 +1,13 @@
+Running Mosquitto locally :
+1. Open config file -- mosquitto.conf
+2. Add this :--
+    listener 9001
+    protocol websockets
+3. Restart MQTT:--
+    net stop mosquitto
+    net start mosquitto
+4.Now your URL becomes:
+const BROKER_URL = "ws://localhost:9001";
+
+If accessing from another device Use your IP:
+ws://192.168.1.5:9001
