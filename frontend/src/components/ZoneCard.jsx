@@ -75,19 +75,27 @@ export default function ZoneCard({ zone, data, type, onCardClick }) {
         {type === "zone2" && (
           <MetricCard
             title="Soil Moisture"
-            value={data?.soil ? `${data.soil}%` : "--"}
+            value={data?.soil ? `${data.soil}` : "--"}
             icon={<Leaf />}
             zone={`Zone ${zone}`}
             onClick={onCardClick}
           />
         )}
 
-        <MetricCard
+        {/* <MetricCard
           title="GPS"
           value={data?.lat && data?.lon ? `${data.lat}, ${data.lon}` : "--"}
           icon={<MapPin />}
           zone={`Zone ${zone}`}
-        />
+        /> */}
+        {type === "zone1" && (
+          <MetricCard
+            title="GPS"
+            value={data?.lat && data?.lon ? `${data.lat}, ${data.lon}` : "--"}
+            icon={<MapPin />}
+            zone={`Zone ${zone}`}
+          />
+        )}
       </div>
     </div>
   );

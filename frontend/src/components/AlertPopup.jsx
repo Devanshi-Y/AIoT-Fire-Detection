@@ -1,5 +1,6 @@
 export default function AlertPopup({ alert, onClose }) {
   if (!alert) return null;
+  
 
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-50">
