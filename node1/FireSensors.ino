@@ -1,103 +1,183 @@
-#include <DHT.h>
-
 #include <WiFi.h>
-#include <PubSubClient.h>
+#include <DHT.h>
+#include <TinyGPS++.h>
 
-// ---------------- PIN DEFINITIONS ----------------
-#define DHTPIN 5
+// -------- CONFIG --------
+#define NODE_ID 1
+
+#define DHTPIN 4
 #define DHTTYPE DHT11
+#define MQ2_PIN 35
+#define FLAME_PIN 27
 
-#define MQ2_PIN 34
-#define SOIL_PIN 35
-#define FLAME_PIN 18
-#define BUZZER_PIN 13
+// WiFi
+const char* ssid     = "Wifi username";
+const char* password = "password";
 
-// ---------------- OBJECT ----------------
+// ThingSpeak
+const char* server = "api.thingspeak.com";
+String apiKey      = "WRITE_API_KEY";
+
+// Objects
+WiFiClient tsClient;
 DHT dht(DHTPIN, DHTTYPE);
+TinyGPSPlus gps;
+HardwareSerial gpsSerial(2);
 
-// ---------------- VARIABLES ----------------
-float temp;
-int smoke;
-int soil;
-int flame;
+// ─── Thresholds ─────────────────────────────────────────────────────────────
+//  Temp   SAFE < 30 | MODERATE 30–40 | HIGH RISK > 40
+//  Hum    SAFE > 50 | MODERATE 30–50 | HIGH RISK < 30
+//  Gas    SAFE < 700| MODERATE 700–800| HIGH RISK > 800
+//  Flame  0 = No fire | 1 = Fire detected  (sent to ThingSpeak)
+// ────────────────────────────────────────────────────────────────────────────
+float TEMP_HIGH_RISK = 40.0;
+float TEMP_MODERATE  = 30.0;
+float HUM_HIGH_RISK  = 30.0;
+float HUM_MODERATE   = 50.0;
+int   GAS_HIGH_RISK  = 800;
+int   GAS_MODERATE   = 700;
 
-const char* ssid = "YOUR_WIFI";
-const char* password = "YOUR_PASSWORD";
+// Timers
+unsigned long lastThingSpeak = 0;
+unsigned long lastSerial     = 0;
 
-const char* mqtt_server = "broker.hivemq.com";
-WiFiClient espClient;
-PubSubClient client(espClient);
+// -------- WIFI --------
+void setup_wifi() {
+  Serial.println("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
 
-String status = "SAFE";
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
 
-// ---------------- SETUP ----------------
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi Connected!");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\n❌ WiFi FAILED");
+  }
+}
+
+// -------- SETUP --------
 void setup() {
   Serial.begin(115200);
 
   dht.begin();
 
-  pinMode(FLAME_PIN, INPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
+  // INPUT_PULLUP keeps pin firmly HIGH when no flame.
+  // Sensor pulls it LOW on detection → active-low, no false positives.
+  pinMode(FLAME_PIN, INPUT_PULLUP);
 
-  digitalWrite(BUZZER_PIN, LOW);
+  gpsSerial.begin(9600, SERIAL_8N1, 16, 17);
 
-  Serial.println("System Starting...");
+  setup_wifi();
+
+  Serial.println("FIRE NODE 1 STARTED ");
 }
 
-// ---------------- LOOP ----------------
+// -------- LOOP --------
 void loop() {
 
-  // ---- READ SENSORS ----
-  temp = dht.readTemperature();
-  smoke = analogRead(MQ2_PIN);
-  soil = analogRead(SOIL_PIN);
-  flame = digitalRead(FLAME_PIN);
+  // -------- READ SENSORS --------
+  float temperature = dht.readTemperature();
+  float humidity    = dht.readHumidity();
+  int   gasValue    = analogRead(MQ2_PIN);
 
-  // ---- CHECK SENSOR ERROR ----
-  if (isnan(temp)) {
-    Serial.println("DHT ERROR!");
-    return;
+  // ── Flame Sensor (ACTIVE-LOW) ─────────────────────────────────────────────
+  // LOW = flame detected, HIGH = no flame
+  // INPUT_PULLUP holds pin HIGH → prevents floating pin false positives
+  int  flameRaw      = digitalRead(FLAME_PIN);
+  bool flameDetected = (flameRaw == LOW);   // LOW = fire ✅
+
+  // -------- GPS READ --------
+  while (gpsSerial.available()) {
+    gps.encode(gpsSerial.read());
   }
 
-  // ---- LOGIC ----
-  bool flame_detected = (flame == LOW);
-  bool smoke_detected = (smoke > 900);   // adjust after testing
-  bool high_temp = (temp > 40);
-  bool very_dry = (soil > 3500);
-
-  if (flame_detected && smoke_detected) {
-    status = "CONFIRMED_FIRE";
-  }
-  else if ((smoke_detected && high_temp) || (flame_detected && high_temp)) {
-    status = "PROBABLE_FIRE";
-  }
-  else if (very_dry && high_temp) {
-    status = "HIGH_RISK";
-  }
-  else {
-    status = "SAFE";
+  float lat = 0, lon = 0;
+  if (gps.location.isValid()) {
+    lat = gps.location.lat();
+    lon = gps.location.lng();
   }
 
-  // ---- BUZZER ----
-  if (status == "FIRE") {
-    digitalWrite(BUZZER_PIN, HIGH);
-  } else {
-    digitalWrite(BUZZER_PIN, LOW);
+  // ── Fire Status (3-Case Logic) ────────────────────────────────────────────
+  //  Case 3 → FIRE_DETECTED : flame = 1
+  //  Case 2 → HIGH_RISK     : params above threshold, flame = 0  (prediction)
+  //  Case 1 → SAFE          : all params below threshold, flame = 0
+  String fireStatus = "SAFE";
+
+  if (flameDetected) {
+    fireStatus = "FIRE_DETECTED";
+  } else if (
+    temperature > TEMP_HIGH_RISK ||
+    humidity    < HUM_HIGH_RISK  ||
+    gasValue    > GAS_HIGH_RISK
+  ) {
+    fireStatus = "HIGH_RISK";
+  } else if (
+    temperature > TEMP_MODERATE ||
+    (humidity >= HUM_HIGH_RISK && humidity <= HUM_MODERATE) ||
+    gasValue   >= GAS_MODERATE
+  ) {
+    fireStatus = "MODERATE";
   }
 
-  // ---- PRINT DATA ----
-  Serial.print("Temp: ");
-  Serial.print(temp);
-  Serial.print(" °C | Smoke: ");
-  Serial.print(smoke);
-  Serial.print(" | Soil: ");
-  Serial.print(soil);
-  Serial.print(" | Flame: ");
-  Serial.print(flame);
-  Serial.print(" | Status: ");
-  Serial.println(status);
+  // -------- SERIAL OUTPUT (every 15 sec) --------
+  if (millis() - lastSerial > 15000) {
+    lastSerial = millis();
 
-  Serial.println("----------------------------------");
+    Serial.println("\n------ SENSOR DATA (NODE 1) ------");
+    Serial.print("Temperature  : "); Serial.print(temperature); Serial.println(" °C");
+    Serial.print("Humidity     : "); Serial.print(humidity);    Serial.println(" %");
+    Serial.print("Gas Value    : "); Serial.println(gasValue);
+    Serial.print("Flame Raw Pin: "); Serial.println(flameRaw);  // 0 = fire, 1 = no fire
+    Serial.print("Flame Status : "); Serial.println(flameDetected ? "DETECTED 🔥" : "NOT DETECTED ✅");
+    Serial.print("Lat          : "); Serial.println(lat, 6);
+    Serial.print("Lon          : "); Serial.println(lon, 6);
+    Serial.print("Fire Status  : "); Serial.println(fireStatus);
+    Serial.println("----------------------------------");
+  }
 
-  delay(2000);
+  // -------- THINGSPEAK (every 15 sec) --------
+  if (millis() - lastThingSpeak > 15000) {
+    lastThingSpeak = millis();
+
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("⚠️ WiFi disconnected, reconnecting...");
+      WiFi.begin(ssid, password);
+      return;
+    }
+
+    if (tsClient.connect(server, 80)) {
+
+      // field4: send 1 = fire detected, 0 = no fire (logical, not raw pin)
+      String url = "/update?api_key=" + apiKey;
+      url += "&field1=" + String(temperature);
+      url += "&field2=" + String(humidity);
+      url += "&field3=" + String(gasValue);
+      url += "&field4=" + String(flameDetected ? 1 : 0);  // 1 = fire, 0 = safe
+      url += "&field5=" + String(lat, 6);
+      url += "&field6=" + String(lon, 6);
+
+      tsClient.print(
+        String("GET ") + url + " HTTP/1.1\r\n" +
+        "Host: " + server + "\r\n" +
+        "Connection: close\r\n\r\n"
+      );
+
+
+      while (tsClient.available()) {
+        String line = tsClient.readStringUntil('\r');
+        Serial.print(line);
+      }
+
+    } else {
+      Serial.println("❌ ThingSpeak connection failed");
+    }
+
+    tsClient.stop();
+  }
 }
