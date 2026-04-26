@@ -334,12 +334,20 @@ export default function Dashboard() {
     lat: 28.665263625615633,
     lon: 77.23245445318264,
   });
+  const lastAlert = useRef({});
+  const speak = (message) => {
+    const speech = new SpeechSynthesisUtterance(message);
+    speech.lang = "en-US";
 
+    window.speechSynthesis.cancel(); // stop overlap
+    window.speechSynthesis.speak(speech);
+  };
   const [alerts, setAlerts] = useState([]);
   const [popupAlert, setPopupAlert] = useState(null);
   const [graphData, setGraphData] = useState(null);
   const [selectedMetric, setSelectedMetric] = useState(null);
   const [selectedZone, setSelectedZone] = useState(null);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
 
   const [history, setHistory] = useState({ z1: [], z2: [] });
 
@@ -453,7 +461,7 @@ export default function Dashboard() {
         temp: Number(feed1.field1) || 0,
         humidity: Number(feed1.field2) || 0,
         smoke: Number(feed1.field3) || 0,
-        flame: Number(feed1.field4) === 1, // ✅ boolean
+        flame: Number(feed1.field4) === 0, // ✅ boolean
         lat: 28.665263625615633,
         lon: 77.23245445318264,
         time: new Date().toLocaleTimeString(),
@@ -472,11 +480,11 @@ export default function Dashboard() {
       const feed2 = data2.feeds[data2.feeds.length - 1];
 
       const z2 = {
-        temp: Number(feed2.field1) || 0,
-        humidity: Number(feed2.field2) || 0,
-        smoke: Number(feed2.field3) || 0,
-        flame: Number(feed2.field4) === 1, // ✅ boolean
-        soil: Number(feed2.field5) || 0, // , // soil moisture not working, using dummy value for testing 
+        temp: Number(feed1.field1) || 0,
+        humidity: Number(feed1.field2) || 0,
+        smoke: Number(feed1.field3) || 0,
+        flame: Number(feed2.field4) === 0, // ✅ boolean
+        soil: 1977, // , // soil moisture not working, using dummy value for testing
         lat: 28.665263625615633,
         lon: 77.23245445318264,
         time: new Date().toLocaleTimeString(),
@@ -484,6 +492,48 @@ export default function Dashboard() {
 
       console.log("Zone1:", z1);
       console.log("Zone2:", z2);
+      // 🔊 VOICE ALERTS
+      const ALERT_INTERVAL = 20000;
+
+      const checkVoice = (zone, zoneName) => {
+        if (!voiceEnabled) return;
+
+        let message = "";
+
+        const temp = Number(zone.temp) || 0;
+        const hum = Number(zone.humidity) || 0;
+        const gas = Number(zone.smoke) || 0;
+        const flame = zone.flame === true || Number(zone.flame) === 1;
+
+        // 🔴 FIRE DETECTED (highest priority)
+        if (flame) {
+          message = `Alert! Fire detected in ${zoneName}. Take immediate action.`;
+        }
+
+        // 🟡 HIGH RISK (your condition)
+        else if (temp > 40 || hum < 30 || gas > 800) {
+          message = `High risk of fire in ${zoneName}. Take immediate action.`;
+        }
+
+        if (!message) return;
+
+        const now = Date.now();
+        const ALERT_INTERVAL = 20000; // 20 sec gap
+
+        if (
+          !lastAlert.current[zoneName] ||
+          now - lastAlert.current[zoneName].time > ALERT_INTERVAL
+        ) {
+          speak(message);
+
+          lastAlert.current[zoneName] = {
+            message,
+            time: now,
+          };
+        }
+      };
+      checkVoice(z1, "Zone 1");
+      checkVoice(z2, "Zone 2");
 
       // ─── ALERTS ─────────────────────────────────────────────
       const newAlerts = [
@@ -549,7 +599,27 @@ export default function Dashboard() {
   return (
     <div className="bg-[#fff7ed] min-h-screen pt-24 px-6">
       <h1 className="text-3xl mb-6 font-bold">Forest Monitoring Dashboard</h1>
+      <div className="flex justify-end mb-4">
+        <button
+          onClick={() => {
+            setVoiceEnabled((prev) => !prev);
 
+            if (!voiceEnabled) {
+              speak("Voice alerts enabled");
+            } else {
+              window.speechSynthesis.cancel();
+            }
+          }}
+          className={`px-6 py-2 rounded-xl font-semibold shadow transition-all duration-300
+      ${
+        voiceEnabled
+          ? "bg-green-500 text-white hover:bg-green-600"
+          : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+      }`}
+        >
+          {voiceEnabled ? "🔊 Voice Alerts ON" : "🔇 Enable Voice Alerts"}
+        </button>
+      </div>
       <ZoneCard
         zone={1}
         data={zone1}

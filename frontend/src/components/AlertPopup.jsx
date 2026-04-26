@@ -10,7 +10,7 @@ export default function AlertPopup({ alert, onClose }) {
 
         {/* TITLE */}
         <h1 className="text-4xl md:text-5xl font-extrabold text-red-600 mb-6">
-          🚨 CRITICAL FIRE ALERT 🚨
+          CRITICAL FIRE ALERT
         </h1>
 
         {/* MESSAGE */}
